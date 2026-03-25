@@ -4,28 +4,28 @@ version = "0.1.0"
 edition = "2024"
 
 [lib]
-crate-type = ["cdylib"]
-
-[build]
-target = "wasm32-unknown-unkwnown"
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 console_error_panic_hook = { version = "0.1.7", optional = true }
 nalgebra = "0.34.1"
 wasm-bindgen = "0.2.114"
 
+engine_wasm_rs-ecs = {path = "ecs"}
+engine_wasm_rs-macros = {path = "macros"}
+
 [dependencies.web-sys]
 version = "0.3.91"
 features = [
-  'Document',
-  'Element',
-  'HtmlCanvasElement',
-  'WebGl2RenderingContext',
-  'Window',
+  "Document",
+  "Element",
+  "HtmlCanvasElement",
+  "WebGl2RenderingContext",
+  "Window",
 ]
 
 [features]
-console_error_panic_hook = ["dep:console_error_panic_hook"]
+panic_hook = ["dep:console_error_panic_hook"]
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3.64"

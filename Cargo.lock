@@ -77,10 +77,25 @@ name = "engine_wasm_rs"
 version = "0.1.0"
 dependencies = [
  "console_error_panic_hook",
+ "engine_wasm_rs-core",
+ "engine_wasm_rs-macros",
  "nalgebra",
  "wasm-bindgen",
  "wasm-bindgen-test",
  "web-sys",
+]
+
+[[package]]
+name = "engine_wasm_rs-core"
+version = "0.1.0"
+
+[[package]]
+name = "engine_wasm_rs-macros"
+version = "0.1.0"
+dependencies = [
+ "engine_wasm_rs-core",
+ "quote",
+ "syn",
 ]
 
 [[package]]

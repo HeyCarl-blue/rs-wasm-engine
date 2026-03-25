@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>engine_wasm_rs – wasm-bindgen tests</title>
+    <style>
+      body { margin: 0; background: #111; }
+      canvas { display: block; }
+    </style>
+  </head>
+  <body>
+    <!--
+      wasm-bindgen-test injects its own <script> after this body.
+      All elements placed here are available to tests via web_sys::Document.
+    -->
+
+    <!-- Primary test canvas used by Engine::new("test-canvas") -->
+    <canvas id="test-canvas" width="800" height="600"></canvas>
+
+    <!-- Secondary canvas for multi-context tests -->
+    <canvas id="test-canvas-2" width="256" height="256"></canvas>
+  </body>
+</html>
