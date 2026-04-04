@@ -1,5 +1,5 @@
 [package]
-name = "engine_wasm_rs"
+name = "ruwr"
 version = "0.1.0"
 edition = "2024"
 
@@ -9,9 +9,12 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 console_error_panic_hook = { version = "0.1.7", optional = true }
 wasm-bindgen = "0.2.114"
+glam = "0.32.1"
+js-sys = "0.3.94"
 
-engine_wasm_rs-ecs = {path = "ecs"}
-engine_wasm_rs-macros = {path = "macros"}
+ruwr_ecs    = { path = "ecs" }
+ruwr_macros = { path = "macros" }
+ruwr_math   = { path = "math" }
 
 [dependencies.web-sys]
 version = "0.3.91"
@@ -21,6 +24,11 @@ features = [
   "HtmlCanvasElement",
   "WebGl2RenderingContext",
   "Window",
+  "WebGlBuffer",
+  "WebGlProgram",
+  "WebGlShader",
+  "WebGlUniformLocation",
+  "WebGlVertexArrayObject"
 ]
 
 [features]

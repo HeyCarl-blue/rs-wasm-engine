@@ -81,18 +81,20 @@ impl ComponentStorage {
 pub struct World {
     next_id: u32,
     entities: Vec<Entity>,
-    storages: HashMap<TypeId, ComponentStorage>
+    storages: HashMap<TypeId, ComponentStorage>,
+    resources: HashMap<TypeId, Box<dyn Any>>
 }
 impl World {
     pub fn new () -> Self {
         Self {
             next_id: 0,
             entities: Vec::new(),
-            storages: HashMap::new()
+            storages: HashMap::new(),
+            resources: HashMap::new()
         }
     }
 
-    // ── Entity management ────────────────────────────────────────────────────
+    // Entity management
     pub fn spawn (&mut self) -> Entity {
         let entity = Entity::new(self.next_id);
         self.next_id += 1;
@@ -112,7 +114,7 @@ impl World {
     }
 
 
-    // ── Component management ────────────────────────────────────────────────────
+    // Component management
     pub fn add_component<C: Component> (&mut self, entity: Entity, component: C) {
         self.storages
             .entry(TypeId::of::<C>())
@@ -126,7 +128,7 @@ impl World {
         }
     }
 
-    pub fn get_component<C: Component> (&mut self, entity: Entity) -> Option<&C> {
+    pub fn get_component<C: Component> (&self, entity: Entity) -> Option<&C> {
         self.storages
             .get(&TypeId::of::<C>())?
             .get(entity)?
@@ -147,7 +149,53 @@ impl World {
             .unwrap_or(false)
     }
 
-    // ── Component query ─────────────────────────────────────────────────────────
+    // Component query
+    pub fn query<A: Component>(&self) -> impl Iterator<Item = (Entity, &A)> {
+        let type_a = TypeId::of::<A>();
+        self.entities.iter().filter_map(move |&entity| {
+            let a = self
+                .storages
+                .get(&type_a)?
+                .get(entity)?
+                .downcast_ref::<A>()?;
+            Some((entity, a))
+        })
+    }
+
+    pub fn query2<A: Component, B: Component>(&self) -> impl Iterator<Item = (Entity, &A, &B)> {
+        let type_a = TypeId::of::<A>();
+        let type_b = TypeId::of::<B>();
+        self.entities.iter().filter_map(move |&entity| {
+            let a = self.storages.get(&type_a)?.get(entity)?.downcast_ref::<A>()?;
+            let b = self.storages.get(&type_b)?.get(entity)?.downcast_ref::<B>()?;
+            Some((entity, a, b))
+        })
+    }
+
+    pub fn query3<A: Component, B: Component, C: Component>(&self) -> impl Iterator<Item = (Entity, &A, &B, &C)> {
+        let type_a = TypeId::of::<A>();
+        let type_b = TypeId::of::<B>();
+        let type_c = TypeId::of::<C>();
+        self.entities.iter().filter_map(move |&entity| {
+            let a = self.storages.get(&type_a)?.get(entity)?.downcast_ref::<A>()?;
+            let b = self.storages.get(&type_b)?.get(entity)?.downcast_ref::<B>()?;
+            let c = self.storages.get(&type_c)?.get(entity)?.downcast_ref::<C>()?;
+            Some((entity, a, b, c))
+        })
+    }
+
+    // Resources Management
+    pub fn insert_resource<R: 'static> (&mut self, resource: R) {
+        self.resources.insert(TypeId::of::<R>(), Box::new(resource));
+    }
+
+    pub fn get_resource<R: 'static> (&self) -> Option<&R> {
+        self.resources.get(&TypeId::of::<R>())?.downcast_ref::<R>()
+    }
+
+    pub fn get_resource_mut<R: 'static> (&mut self) -> Option<&mut R> {
+        self.resources.get_mut(&TypeId::of::<R>())?.downcast_mut::<R>()
+    }
 }
 impl Default for World {
     fn default() -> Self {

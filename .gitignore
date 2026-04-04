@@ -2,3 +2,4 @@
 /Cargo.lock
 /pkg/
 /.cargo/
+/*/Cargo.lock

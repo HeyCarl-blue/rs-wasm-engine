@@ -1,4 +1,4 @@
 [package]
-name = "engine_wasm_rs-ecs"
+name = "ruwr_ecs"
 version = "0.1.0"
 edition = "2024"

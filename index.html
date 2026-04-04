@@ -1,20 +1,49 @@
+<!-- index.html -->
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
+    <style>
+        body { margin: 0; }
+        canvas { display: block; width: 100vw; height: 100vh; }
+    </style>
 </head>
 <body>
-    <canvas id="canvas" width="800" height="600"></canvas>
+    <canvas id="canvas"></canvas>
     <script type="module">
-        import init, { greet, Engine } from "./pkg/engine_wasm_rs.js";
+        import init, { Engine, ColorRGB, ColorRGBA, Vector3 } from './pkg/ruwr.js';
 
-        init().then(() => {
-            const engine = new Engine("canvas");
-            engine.fill(0.0, 1.0, 0.0, 1.0);
-            console.log(engine.canvas);
-        });
+        await init();
+
+        const canvas = document.getElementById('canvas');
+        canvas.width = canvas.clientWidth;
+        canvas.height = canvas.clientHeight;
+
+        const engine = new Engine('canvas');
+
+        new ResizeObserver(entries => {
+            const { width, height } = entries[0].contentRect;
+            canvas.width = width;
+            canvas.height = height;
+            engine.resize(width, height);
+        }).observe(canvas);
+
+        engine.set_ambient_light(ColorRGB.from_hex('888888'))
+
+        engine.add_lambertian_sphere(new Vector3(0, 0, -5), new ColorRGB(0.6, 0.2, 0.6), 16, 16);
+
+        const sphere = engine.create_sphere_mesh(32, 32);
+        const red    = engine.create_lambertian_material(new ColorRGB(1, 0, 0));
+        const blue   = engine.create_lambertian_material(new ColorRGB(0, 0, 1));
+
+        engine.spawn_object(sphere, red,  new Vector3(-2, 0, -5));
+        engine.spawn_object(sphere, blue, new Vector3( 2, 0, -5));
+
+        function loop(timestamp) {
+            engine.clear(ColorRGBA.from_hex('222222'));
+            engine.next_frame(timestamp);
+            requestAnimationFrame(loop);
+        }
+        requestAnimationFrame(loop);
     </script>
 </body>
 </html>

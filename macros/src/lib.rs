@@ -10,7 +10,7 @@ pub fn component (_attr: TokenStream, item: TokenStream) -> TokenStream {
     let expanded = quote! {
         #input
 
-        impl engine_wasm_rs_core::ecs::component::Component for #name {}
+        impl ruwr_ecs::Component for #name {}
     };
 
     TokenStream::from(expanded)

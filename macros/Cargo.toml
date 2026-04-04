@@ -1,5 +1,5 @@
 [package]
-name = "engine_wasm_rs-macros"
+name = "ruwr_macros"
 version = "0.1.0"
 edition = "2024"
 
@@ -7,6 +7,6 @@ edition = "2024"
 proc-macro = true
 
 [dependencies]
-engine_wasm_rs-ecs = {path= "../ecs"}
+ruwr_ecs = {path= "../ecs"}
 quote = "1.0.45"
 syn = "2.0.117"
