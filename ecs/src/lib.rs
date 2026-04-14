@@ -16,6 +16,10 @@ impl Entity {
     pub fn id (self) -> u32 {
         self.id
     }
+
+    pub fn from_id(id: u32) -> Self {
+        Self { id }
+    }
 }
 
 // =================================================================== //

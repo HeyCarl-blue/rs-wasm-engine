@@ -4,6 +4,7 @@ pub mod resources;
 pub mod types;
 
 use glam::Vec3;
+use ruwr_ecs::Entity;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{HtmlCanvasElement, WebGl2RenderingContext};
@@ -13,6 +14,7 @@ use ruwr_ecs::{Scheduler, World};
 use components::Viewport;
 
 use crate::engine::components::ActiveCamera;
+use crate::engine::components::Camera2D;
 use crate::engine::components::Camera3D;
 use crate::engine::components::DirectionalLight;
 use crate::engine::components::Material;
@@ -43,7 +45,7 @@ pub struct Engine {
 #[wasm_bindgen]
 impl Engine {
     #[wasm_bindgen(constructor)]
-    pub fn new(canvas_id: &str) -> Engine {
+    pub fn new (canvas_id: &str) -> Engine {
         let document = web_sys::window()
             .expect("no global window")
             .document()
@@ -69,11 +71,6 @@ impl Engine {
         world.insert_resource(MeshStore::new());
         world.insert_resource(MaterialStore::new());
 
-        let camera = world.spawn();
-        world.add_component(camera, Camera3D::new(45.0, 0.1, 100.0));
-        world.add_component(camera, Transform::new(Vec3::new(0.0, 0.0, 0.0)));
-        world.add_component(camera, ActiveCamera {});
-
         let mut shaders = ShaderStore::new();
         let lambertian_shader = shaders.load_defaults(&context)
             .expect("Couldn't load default shaders");
@@ -91,7 +88,7 @@ impl Engine {
         }
     }
 
-    pub fn next_frame(&mut self, timestamp: f64) {
+    pub fn next_frame (&mut self, timestamp: f64) {
         let dt = if self.last_timestamp == 0.0 {
             0.0
         } else {
@@ -103,7 +100,7 @@ impl Engine {
         self.scheduler.run(&mut self.world);
     }
 
-    pub fn resize(&mut self, width: u32, height: u32) {
+    pub fn resize (&mut self, width: u32, height: u32) {
         self.context.viewport(0, 0, width as i32, height as i32);
         if let Some(vp) = self.world.get_resource_mut::<Viewport>() {
             vp.width = width;
@@ -111,11 +108,15 @@ impl Engine {
         }
     }
 
-    pub fn clear(&self, color: ColorRGBA) {
+    pub fn clear (&self, color: ColorRGBA) {
         self.context.clear_color(color.r, color.g, color.b, color.a);
         self.context.clear(
             WebGl2RenderingContext::COLOR_BUFFER_BIT | WebGl2RenderingContext::DEPTH_BUFFER_BIT
         );
+    }
+
+    pub fn delta_time (&self) -> f32 {
+        self.world.get_resource::<DeltaTime>().unwrap().0
     }
 }
 
@@ -123,11 +124,37 @@ impl Engine {
 
 #[wasm_bindgen]
 impl Engine {
-    pub fn set_ambient_light(&mut self, color: ColorRGB) {
+    pub fn set_ambient_light (&mut self, color: ColorRGB) {
         self.world.insert_resource(AmbientLight { color: color.into() });
     }
 
-    pub fn add_directional_light(&mut self, direction: Vector3, color: ColorRGB) -> u32 {
+    pub fn add_camera_3d (&mut self, position: Vector3, fov_degrees: f32) -> u32 {
+        let camera = self.world.spawn();
+        self.world.add_component(camera, Camera3D::new(fov_degrees, 0.1, 1000.0));
+        self.world.add_component(camera, Transform::new(position.into()));
+
+        camera.id()
+    }
+
+    pub fn add_camera_2d (&mut self, position: Vector3, zoom: f32) -> u32 {
+        let camera = self.world.spawn();
+        self.world.add_component(camera, Camera2D::new(zoom));
+        self.world.add_component(camera, Transform::new(position.into()));
+
+        camera.id()
+    }
+
+    pub fn make_camera_active (&mut self, camera_id: u32) {
+        let active: Vec<Entity> = self.world.query::<ActiveCamera>()
+            .map(|(e, _)| e)
+            .collect();
+        for entity in active {
+            self.world.remove_component::<ActiveCamera>(entity);
+        }
+        self.world.add_component(Entity::from_id(camera_id), ActiveCamera {});
+    }
+
+    pub fn add_directional_light (&mut self, direction: Vector3, color: ColorRGB) -> u32 {
         let light = self.world.spawn();
         let direction: Vec3 = direction.into();
         self.world.add_component(light, DirectionalLight {
@@ -139,22 +166,36 @@ impl Engine {
 
     // Asset creation
 
-    pub fn create_sphere_mesh(&mut self, stacks: u32, slices: u32) -> u32 {
+    pub fn create_bezier_mesh(
+        &mut self,
+        p0: Vector3, p1: Vector3, p2: Vector3, p3: Vector3,
+        width: f32,
+        segments: u32,
+    ) -> u32 {
+        let meshes = self.world.get_resource_mut::<MeshStore>().unwrap();
+        meshes.load_bezier(
+            &self.context,
+            p0.into(), p1.into(), p2.into(), p3.into(),
+            width, segments,
+        ).0
+    }
+
+    pub fn create_sphere_mesh (&mut self, stacks: u32, slices: u32) -> u32 {
         self.world.get_resource_mut::<MeshStore>().unwrap()
             .get_or_create_sphere(&self.context, stacks, slices).0
     }
 
-    pub fn create_lambertian_material(&mut self, albedo: ColorRGB) -> u32 {
+    pub fn create_lambertian_material (&mut self, albedo: ColorRGB) -> u32 {
         self.world.get_resource_mut::<MaterialStore>().unwrap()
             .insert(MaterialData { shader_id: self.lambertian_shader, albedo: albedo.into() }).0
     }
 
     // Entity spawning
 
-    pub fn spawn_object(&mut self, mesh_id: u32, material_id: u32, position: Vector3) -> u32 {
+    pub fn spawn_object (&mut self, mesh_id: u32, material_id: u32, position: Vector3) -> u32 {
         let entity = self.world.spawn();
         self.world.add_component(entity, Transform::new(position.into()));
-        self.world.add_component(entity, Mesh::new(MeshId(mesh_id), 0));
+        self.world.add_component(entity, Mesh::new(MeshId(mesh_id)));
         self.world.add_component(entity, Material { material_id: MaterialId(material_id) });
         self.world.add_component(entity, Visible {});
         entity.id()
@@ -162,7 +203,7 @@ impl Engine {
 
     // Helpers
 
-    pub fn add_lambertian_sphere(&mut self, position: Vector3, albedo: ColorRGB, stacks: u32, slices: u32) -> u32 {
+    pub fn add_lambertian_sphere (&mut self, position: Vector3, albedo: ColorRGB, stacks: u32, slices: u32) -> u32 {
         let mesh_id = self.create_sphere_mesh(stacks, slices);
         let mat_id  = self.create_lambertian_material(albedo);
         self.spawn_object(mesh_id, mat_id, position)

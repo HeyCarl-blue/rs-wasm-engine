@@ -12,7 +12,9 @@ pub struct AmbientLight {
 }
 
 
-// IDs
+// =================================================================== //
+// =============================== IDs =============================== //
+// =================================================================== //
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MeshId(pub u32);
@@ -23,8 +25,9 @@ pub struct ShaderId(pub u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MaterialId(pub u32);
 
-// MeshStore
-
+// =================================================================== //
+// =========================== MESH STORE ============================ //
+// =================================================================== //
 pub struct GpuMesh {
     pub vao: WebGlVertexArrayObject,
     pub vbo: WebGlBuffer,
@@ -54,29 +57,7 @@ impl MeshStore {
         self.meshes.get(&id)
     }
 
-    pub fn load_sphere (&mut self, context: &WebGl2RenderingContext, stacks: u32, slices: u32) -> MeshId {
-        let mut vertices: Vec<f32> = Vec::new();
-        let mut indices: Vec<u16> = Vec::new();
-
-        for i in 0..=stacks {
-            let phi = std::f32::consts::PI * i as f32 / stacks as f32;
-            for j in 0..=slices {
-                let theta = 2.0 * std::f32::consts::PI * j as f32 / slices as f32;
-                let x = phi.sin() * theta.cos();
-                let y = phi.cos();
-                let z = phi.sin() * theta.sin();
-                vertices.extend_from_slice(&[x, y, z, x, y, z]);
-            }
-        }
-
-        for i in 0..=stacks {
-            for j in 0..=slices {
-                let a = (i* (slices + 1) + j) as u16;
-                let b = a + slices as u16 + 1;
-                indices.extend_from_slice(&[a, b, a + 1, b, b + 1, a + 1]);
-            }
-        }
-
+    pub fn upload (&mut self, context: &WebGl2RenderingContext, vertices: &[f32], indices: &[u16]) -> MeshId {
         let vao = context.create_vertex_array().unwrap();
         context.bind_vertex_array(Some(&vao));
 
@@ -127,6 +108,117 @@ impl MeshStore {
         self.insert(GpuMesh { vao, vbo, ebo, index_count: indices.len() as i32 })
     }
 
+    pub fn load_sphere (&mut self, context: &WebGl2RenderingContext, stacks: u32, slices: u32) -> MeshId {
+        let mut vertices: Vec<f32> = Vec::new();
+        let mut indices: Vec<u16> = Vec::new();
+
+        for i in 0..=stacks {
+            let phi = std::f32::consts::PI * i as f32 / stacks as f32;
+            for j in 0..=slices {
+                let theta = 2.0 * std::f32::consts::PI * j as f32 / slices as f32;
+                let x = phi.sin() * theta.cos();
+                let y = phi.cos();
+                let z = phi.sin() * theta.sin();
+                vertices.extend_from_slice(&[x, y, z, x, y, z]);
+            }
+        }
+
+        for i in 0..=stacks {
+            for j in 0..=slices {
+                let a = (i* (slices + 1) + j) as u16;
+                let b = a + slices as u16 + 1;
+                indices.extend_from_slice(&[a, b, a + 1, b, b + 1, a + 1]);
+            }
+        }
+
+        self.upload(context, &vertices, &indices)
+    }
+
+    pub fn load_line (
+        &mut self,
+        context: &WebGl2RenderingContext,
+        start: Vec3,
+        end: Vec3,
+        width: f32,
+    ) -> MeshId {
+        let dir = (end - start).truncate().normalize();
+        let perp = Vec3::new(-dir.y, dir.x, 0.0) * (width / 2.0);
+        let normal = Vec3::Z;
+
+        let v = [
+            start + perp,
+            start - perp,
+            end   + perp,
+            end   - perp,
+        ];
+
+        let mut vertices: Vec<f32> = Vec::new();
+        for pos in &v {
+            vertices.extend_from_slice(&[pos.x, pos.y, pos.z]);
+            vertices.extend_from_slice(&[normal.x, normal.y, normal.z]);
+        }
+
+        let indices: Vec<u16> = vec![0, 1, 2, 1, 3, 2];
+
+        self.upload(context, &vertices, &indices)
+    }
+
+    pub fn load_polyline (
+        &mut self,
+        context: &WebGl2RenderingContext,
+        points: &[Vec3],
+        width: f32
+    ) -> MeshId {
+        assert!(points.len() >= 2);
+        let n = points.len();
+        let normal = Vec3::Z;
+
+        let perps: Vec<Vec3> = (0..n).map(|i| {
+            let dir = if i == 0 {
+                (points[1] - points[0]).truncate().normalize()
+            } else if i == n - 1 {
+                (points[n-1] - points[n-2]).truncate().normalize()
+            } else {
+                let d0 = (points[i] - points[i-1]).truncate().normalize();
+                let d1 = (points[i+1] - points[i]).truncate().normalize();
+                (d0 + d1).normalize()
+            };
+            Vec3::new(-dir.y, dir.x, 0.0) * (width / 2.0)
+        }).collect();
+
+        let mut vertices: Vec<f32> = Vec::new();
+        for (i, &p) in points.iter().enumerate() {
+            let top = p + perps[i];
+            let bot = p - perps[i];
+            vertices.extend_from_slice(&[top.x, top.y, top.z, normal.x, normal.y, normal.z]);
+            vertices.extend_from_slice(&[bot.x, bot.y, bot.z, normal.x, normal.y, normal.z]);
+        }
+
+        let mut indices: Vec<u16> = Vec::new();
+        for i in 0..n-1 {
+            let b = (i * 2) as u16;
+            indices.extend_from_slice(&[b, b+1, b+2, b+1, b+3, b+2]);
+        }
+
+        self.upload(context, &vertices, &indices)
+    }
+
+    pub fn load_bezier (
+        &mut self,
+        context: &WebGl2RenderingContext,
+        p0: Vec3, p1: Vec3, p2: Vec3, p3: Vec3,
+        width: f32,
+        segments: u32,
+    ) -> MeshId {
+        let points: Vec<Vec3> = (0..=segments).map(|i| {
+            let t = i as f32 / segments as f32;
+            let mt = 1.0 - t;
+            p0 * (mt*mt*mt) + p1 * (3.0*mt*mt*t) + p2 * (3.0*mt*t*t) + p3 * (t*t*t)
+        }).collect();
+
+        self.load_polyline(context, &points, width)
+    }
+
     pub fn get_or_create_sphere(&mut self, context: &WebGl2RenderingContext, stacks: u32, slices: u32) -> MeshId {
         if let Some(&id) = self.sphere_cache.get(&(stacks, slices)) {
             return id;
@@ -137,7 +229,9 @@ impl MeshStore {
     }
 }
 
-// MaterialStore
+// =================================================================== //
+// ========================= MATERIAL STORE ========================== //
+// =================================================================== //
 
 pub struct MaterialData {
     pub shader_id: ShaderId,
@@ -166,7 +260,9 @@ impl MaterialStore {
     }
 }
 
-// ShaderStore
+// =================================================================== //
+// =========================== SHADER STORE ========================== //
+// =================================================================== //
 
 pub struct GpuShader {
     pub program: WebGlProgram,

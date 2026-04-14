@@ -69,6 +69,11 @@ pub struct Viewport {
     }
 }
 
+// CAMERA
+
+#[component]
+pub struct ActiveCamera {}
+
 #[component]
 #[derive(Debug, Clone)]
 pub struct Camera3D {
@@ -86,7 +91,20 @@ pub struct Camera3D {
 }
 
 #[component]
-pub struct ActiveCamera {}
+#[derive(Debug, Clone)]
+pub struct Camera2D {
+    pub zoom: f32,
+    pub near: f32,
+    pub far: f32,
+} impl Camera2D {
+    pub fn new (zoom: f32) -> Self {
+        Self { zoom, near: -1.0, far: 1.0 }
+    }
+} impl Default for Camera2D {
+    fn default() -> Self {
+        Self { zoom: 1.0, near: -1000.0, far: 1000.0 }
+    }
+}
 
 #[component]
 pub struct Visible {}
@@ -107,11 +125,10 @@ pub struct DirectionalLight {
 #[component]
 #[derive(Debug, Clone)]
 pub struct Mesh {
-    pub mesh_id: MeshId,
-    pub vertex_count: u32
+    pub mesh_id: MeshId
 } impl Mesh {
-    pub fn new (mesh_id: MeshId, vertex_count: u32) -> Self {
-        Self { mesh_id, vertex_count }
+    pub fn new (mesh_id: MeshId) -> Self {
+        Self { mesh_id }
     }
 }
 

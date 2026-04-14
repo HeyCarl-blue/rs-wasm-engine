@@ -27,16 +27,32 @@
             engine.resize(width, height);
         }).observe(canvas);
 
-        engine.set_ambient_light(ColorRGB.from_hex('888888'))
+        engine.set_ambient_light(ColorRGB.from_hex('aaaaaa'));
 
-        engine.add_lambertian_sphere(new Vector3(0, 0, -5), new ColorRGB(0.6, 0.2, 0.6), 16, 16);
+
+        const camera = engine.add_camera_2d(new Vector3(0, 0, 0), 100);
+        engine.make_camera_active(camera);
+
+        engine.add_lambertian_sphere(new Vector3(0, 0, 0), new ColorRGB(0.6, 0.2, 0.6), 16, 16);
 
         const sphere = engine.create_sphere_mesh(32, 32);
         const red    = engine.create_lambertian_material(new ColorRGB(1, 0, 0));
         const blue   = engine.create_lambertian_material(new ColorRGB(0, 0, 1));
 
-        engine.spawn_object(sphere, red,  new Vector3(-2, 0, -5));
-        engine.spawn_object(sphere, blue, new Vector3( 2, 0, -5));
+        const curve = engine.create_bezier_mesh(
+        new Vector3(-3,  0, 0),
+        new Vector3(-1,  3, 0),
+        new Vector3( 1, -3, 0),
+        new Vector3( 3,  0, 0),
+        0.05,
+        32
+    );
+
+    const orange = engine.create_lambertian_material(ColorRGB.from_hex("#ff6600"));
+    engine.spawn_object(curve, orange, new Vector3(0, 0, 0));
+
+        engine.spawn_object(sphere, red,  new Vector3(-2, 0, 0));
+        engine.spawn_object(sphere, blue, new Vector3( 2, 0, 0));
 
         function loop(timestamp) {
             engine.clear(ColorRGBA.from_hex('222222'));

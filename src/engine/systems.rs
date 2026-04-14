@@ -1,8 +1,8 @@
-use glam::{Mat4, Vec3};
+use glam::{Mat4, Quat, Vec3};
 use ruwr_ecs::System;
 use web_sys::{WebGl2RenderingContext, WebGlProgram};
 
-use crate::engine::components::{ActiveCamera, Camera3D, DirectionalLight, Material, Mesh, Transform, Viewport, Visible};
+use crate::engine::components::{ActiveCamera, Camera2D, Camera3D, DirectionalLight, Material, Mesh, Transform, Viewport, Visible};
 use crate::engine::resources::{AmbientLight, MaterialStore, MeshStore, ShaderStore};
 
 use ruwr_ecs::World;
@@ -19,6 +19,20 @@ fn get_view_proj (camera: &Camera3D, transform: &Transform, aspect_ratio: f32) -
         transform.rotation * Vec3::NEG_Z,
         Vec3::Y
     );
+
+    proj * view
+}
+
+fn get_ortho_view_proj (camera: &Camera2D, transform: &Transform, viewport: &Viewport) -> Mat4 {
+    let hw = (viewport.width as f32 / 2.0) / camera.zoom;
+    let hh = (viewport.height as f32 / 2.0) / camera.zoom;
+
+    let proj = Mat4::orthographic_rh_gl(-hw, hw, -hh, hh, camera.near, camera.far);
+
+    let view = Mat4::from_rotation_translation(
+        Quat::from_rotation_z(transform.rotation.to_euler(glam::EulerRot::ZYX).0),
+        transform.position
+    ).inverse();
 
     proj * view
 }
@@ -47,9 +61,14 @@ pub struct RenderSystem {
         let aspect_ratio = vp.aspect_ratio();
 
         let Some(cam_entity) = world.query::<ActiveCamera>().next().map(|(e, _)| e) else { return };
-        let Some(camera) = world.get_component::<Camera3D>(cam_entity) else { return };
         let Some(cam_transform) = world.get_component::<Transform>(cam_entity) else { return };
-        let view_proj = get_view_proj(camera, cam_transform, aspect_ratio);
+        let view_proj = if let Some(cam) = world.get_component::<Camera3D>(cam_entity) {
+            get_view_proj(cam, cam_transform, aspect_ratio)
+        } else if let Some(cam) = world.get_component::<Camera2D>(cam_entity) {
+            get_ortho_view_proj(cam, cam_transform, vp)
+        } else {
+            return; // active camera has no camera component
+        };
 
         let shaders = world.get_resource::<ShaderStore>().unwrap();
         let meshes = world.get_resource::<MeshStore>().unwrap();
