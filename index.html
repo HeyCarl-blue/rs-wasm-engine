@@ -5,20 +5,80 @@
     <style>
         body { margin: 0; }
         canvas { display: block; width: 100vw; height: 100vh; }
+        #labels {display: flex; flex-direction: column; position: absolute; color: white; background-color: black;}
     </style>
 </head>
 <body>
+    <div id="labels">
+        <p id="fps-label"></p>
+        <p id="playing-label"></p>
+        <p id="position-label"></p>
+    </div>
+    
     <canvas id="canvas"></canvas>
     <script type="module">
-        import init, { Engine, ColorRGB, ColorRGBA, Vector3 } from './pkg/ruwr.js';
+        import init, { Engine, SphereMesh, SceneObject, Transform, LambertianMaterial, ColorRGB, ColorRGBA, Vector3, Quaternion, Rigidbody } from './pkg/ruwr.js';
 
         await init();
 
+        const keysDown          = new Set();
+        const keysJustPressed   = new Set();
+        const keysJustReleased  = new Set();
+
+        const mouse = { x: 0, y: 0, dx: 0, dy: 0 };
+        const mouseDown         = new Set();
+        const mouseJustPressed  = new Set();
+        const mouseJustReleased = new Set();
+
+        let yaw   = 0;
+        let pitch = 0;
+        const LOOK_SENSITIVITY = 0.002;
+
+        const fpsLabel = document.getElementById('fps-label');
+        const playingLabel = document.getElementById('playing-label');
+        const positionLabel = document.getElementById('position-label');
+
         const canvas = document.getElementById('canvas');
-        canvas.width = canvas.clientWidth;
-        canvas.height = canvas.clientHeight;
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        window.addEventListener('keydown', e => {
+            if (!keysDown.has(e.code)) keysJustPressed.add(e.code);
+            keysDown.add(e.code);
+        });
+        window.addEventListener('keyup', e => {
+            keysDown.delete(e.code);
+            keysJustReleased.add(e.code);
+        });
+        window.addEventListener('mouseup', e => {
+            mouseDown.delete(e.button);
+            mouseJustReleased.add(e.button);
+        });
+
+        canvas.addEventListener('mousedown', e => {
+            if (!mouseDown.has(e.button)) mouseJustPressed.add(e.button);
+            mouseDown.add(e.button);
+        });
+        canvas.addEventListener('mouseup', e => {
+            mouseDown.delete(e.button);
+            mouseJustReleased.add(e.button);
+        });
+        canvas.addEventListener('mousemove', e => {
+            mouse.x  = e.offsetX;
+            mouse.y  = e.offsetY;
+            mouse.dx += e.movementX;
+            mouse.dy += e.movementY;
+        });
+        canvas.addEventListener('click', () => canvas.requestPointerLock());
+
+        document.addEventListener('pointerlockchange', () => {
+            if (document.pointerLockElement === canvas) {
+                console.log(mouse);
+            }
+        });
 
         const engine = new Engine('canvas');
+        const scene  = engine.scene();
 
         new ResizeObserver(entries => {
             const { width, height } = entries[0].contentRect;
@@ -27,39 +87,101 @@
             engine.resize(width, height);
         }).observe(canvas);
 
-        engine.set_ambient_light(ColorRGB.from_hex('aaaaaa'));
+        scene.setAmbientLight(ColorRGB.fromHex('aaaaaa'));
 
+        const camera = scene.addCamera3D(new Vector3(0, 0, 10), 30, 0.1, 1000.0);
+        const cameraTransform = camera.getTransform();
 
-        const camera = engine.add_camera_2d(new Vector3(0, 0, 0), 100);
-        engine.make_camera_active(camera);
+        const red  = new LambertianMaterial(new ColorRGB(1, 0, 0));
+        const blue = new LambertianMaterial(new ColorRGB(0, 0, 1));
 
-        engine.add_lambertian_sphere(new Vector3(0, 0, 0), new ColorRGB(0.6, 0.2, 0.6), 16, 16);
+        const ta = new Transform(new Vector3(-1.5, 0, 0));
+        const tb = new Transform(new Vector3( 1.5, 0, 0));
 
-        const sphere = engine.create_sphere_mesh(32, 32);
-        const red    = engine.create_lambertian_material(new ColorRGB(1, 0, 0));
-        const blue   = engine.create_lambertian_material(new ColorRGB(0, 0, 1));
+        const ma = new SphereMesh(100, 100);
+        const mb = new SphereMesh(8, 8);
 
-        const curve = engine.create_bezier_mesh(
-        new Vector3(-3,  0, 0),
-        new Vector3(-1,  3, 0),
-        new Vector3( 1, -3, 0),
-        new Vector3( 3,  0, 0),
-        0.05,
-        32
-    );
+        const a = new SceneObject(scene, true);
+        const b = new SceneObject(scene, true);
 
-    const orange = engine.create_lambertian_material(ColorRGB.from_hex("#ff6600"));
-    engine.spawn_object(curve, orange, new Vector3(0, 0, 0));
+        ta.attachTo(a);
+        ma.attachTo(a);
+        red.attachTo(a);
 
-        engine.spawn_object(sphere, red,  new Vector3(-2, 0, 0));
-        engine.spawn_object(sphere, blue, new Vector3( 2, 0, 0));
+        tb.attachTo(b);
+        mb.attachTo(b);
+        blue.attachTo(b);
 
-        function loop(timestamp) {
-            engine.clear(ColorRGBA.from_hex('222222'));
-            engine.next_frame(timestamp);
+        new Rigidbody(1.0, false).attachTo(a);
+        new Rigidbody(1.0, true).attachTo(b);
+
+        // a.addSphereCollider(false);
+        // b.addSphereCollider(false);
+
+        function pollEvents (engine, dt) {
+            // console.log(keysDown);
+            // console.log(mouseDown);
+
+            if (mouseDown.has(0)) {
+                
+            }
+
+            if (document.pointerLockElement === canvas) {
+                yaw   -= mouse.dx * LOOK_SENSITIVITY;
+                pitch -= mouse.dy * LOOK_SENSITIVITY;
+                pitch  = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitch));
+
+                const qYaw   = Quaternion.from_axis_angle(new Vector3(0, 1, 0), yaw);
+                const qPitch = Quaternion.from_axis_angle(new Vector3(1, 0, 0), pitch);
+                cameraTransform.setRotation(qYaw.multiply(qPitch));
+            }
+
+            if (keysDown.has('KeyW'))  {
+                const f = cameraTransform.forward();
+                cameraTransform.translate(new Vector3 ( f.x * dt, f.y * dt, f.z * dt) );
+            }
+            if (keysDown.has('KeyS'))  {
+                const b = cameraTransform.back();
+                cameraTransform.translate(new Vector3 ( b.x * dt, b.y * dt, b.z * dt) );
+            }
+            if (keysDown.has('KeyA'))  {
+                const l = cameraTransform.left();
+                cameraTransform.translate(new Vector3 ( l.x * dt, l.y * dt, l.z * dt) );
+            }
+            if (keysDown.has('KeyD'))  {
+                const r = cameraTransform.right();
+                cameraTransform.translate(new Vector3 ( r.x * dt, r.y * dt, r.z * dt) );
+            }
+
+            if (keysJustPressed.has('Space')) engine.togglePlaying();
+        }
+
+        function loop() {
+            // engine.clear(ColorRGBA.fromHex('222222'));
+            engine.nextFrame();
+            const dt = engine.deltaTime();
+
+            // if (engine.isPlaying()) {
+            //     ta.translate(new Vector3(0.0, -0.981 * dt, 0.0));
+            // }
+
+            fpsLabel.textContent = `${(1.0 / dt).toFixed(2)} fps`;
+            playingLabel.textContent = `${engine.isPlaying() ? 'playing' : 'paused'}`;
+            positionLabel.textContent = `camera pos: ${cameraTransform.getPosition()}`;
+
+            pollEvents(engine, dt);
+
+            mouse.dx = 0;
+            mouse.dy = 0;
+            mouseJustPressed.clear();
+            mouseJustReleased.clear();
+            keysJustPressed.clear();
+            keysJustReleased.clear();
+
             requestAnimationFrame(loop);
         }
         requestAnimationFrame(loop);
+
     </script>
 </body>
 </html>

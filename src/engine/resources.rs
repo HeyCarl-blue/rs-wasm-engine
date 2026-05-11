@@ -1,14 +1,47 @@
 use std::collections::HashMap;
 use glam::Vec3;
+use ruwr_ecs::Entity;
 use web_sys::{WebGl2RenderingContext, WebGlBuffer, WebGlProgram, WebGlVertexArrayObject};
 
 const LAMBERTIAN_VERT: &str = include_str!("shaders/lambertian.vert");
 const LAMBERTIAN_FRAG: &str = include_str!("shaders/lambertian.frag");
 
+#[derive(Debug, Clone)]
 pub struct DeltaTime (pub f32);
 
+#[derive(Debug, Clone)]
 pub struct AmbientLight {
     pub color: Vec3,
+}
+
+#[derive(Debug, Clone)]
+pub struct Viewport {
+    pub width: u32,
+    pub height: u32
+} impl Viewport {
+    pub fn new (width: u32, height: u32) -> Self {
+        Self { width, height }
+    }
+
+    pub fn aspect_ratio (&self) -> f32 {
+        self.width as f32 / self.height as f32
+    }
+
+    pub fn top (&self) -> f32 {
+        self.height as f32 / 2.0
+    }
+
+    pub fn bottom (&self) -> f32 {
+        self.height as f32 / -2.0
+    }
+
+    pub fn right (&self) -> f32 {
+        self.width as f32 / 2.0
+    }
+
+    pub fn left (&self) -> f32 {
+        self.width as f32 / -2.0
+    }
 }
 
 
@@ -258,12 +291,15 @@ impl MaterialStore {
     pub fn get(&self, id: MaterialId) -> Option<&MaterialData> {
         self.materials.get(&id)
     }
+
+    pub fn get_mut(&mut self, id: MaterialId) -> Option<&mut MaterialData> {
+        self.materials.get_mut(&id)
+    }
 }
 
 // =================================================================== //
 // =========================== SHADER STORE ========================== //
 // =================================================================== //
-
 pub struct GpuShader {
     pub program: WebGlProgram,
 }
@@ -275,17 +311,22 @@ impl GpuShader {
 }
 
 pub struct ShaderStore {
+    lambertian_id: Option<ShaderId>,
     shaders: HashMap<ShaderId, GpuShader>,
     next_id: u32,
 }
 
 impl ShaderStore {
     pub fn new () -> Self {
-        Self { shaders: HashMap::new(), next_id: 0 }
+        Self {
+            lambertian_id: None,
+            shaders: HashMap::new(),
+            next_id: 0
+        }
     }
 
-    pub fn load_defaults (&mut self, context: &WebGl2RenderingContext) -> Result<ShaderId, String> {
-        self.compile(context, LAMBERTIAN_VERT, LAMBERTIAN_FRAG)
+    pub fn load_defaults (&mut self, context: &WebGl2RenderingContext) {
+        self.lambertian_id = Some(self.compile(context, LAMBERTIAN_VERT, LAMBERTIAN_FRAG).expect("Error compiling lambertian shader"))
     }
 
     pub fn compile (
@@ -303,6 +344,17 @@ impl ShaderStore {
 
     pub fn get (&self, id: ShaderId) -> Option<&GpuShader> {
         self.shaders.get(&id)
+    }
+
+    pub fn lambertian_id (&self) -> Option<ShaderId> {
+        self.lambertian_id
+    }
+
+    pub fn lambertian (&self) -> Option<&GpuShader> {
+        match self.lambertian_id {
+            None => None,
+            Some(id) => self.shaders.get(&id)
+        }
     }
 }
 
@@ -334,4 +386,102 @@ fn link_program (context: &WebGl2RenderingContext, vert_src: &str, frag_src: &st
     } else {
         Err(context.get_program_info_log(&program).unwrap_or_default())
     }
+}
+
+// COLLISION RESOURCES
+
+pub struct Aabb {
+    pub center: Vec3,
+    pub half_extents: Vec3
+} impl Aabb {
+    pub fn intersects (&self, other: &Aabb) -> bool {
+        (self.center - other.center).abs()
+            .cmple(self.half_extents + other.half_extents)
+            .all()
+    }
+
+    fn octant (&self, p: Vec3) -> usize {
+        let d = p - self.center;
+        (d.x >= 0.0) as usize
+            | (((d.y >= 0.0) as usize) << 1)
+            | (((d.z >= 0.0) as usize) << 2)
+    }
+
+    fn child_bounds (&self, octant: usize) -> Aabb {
+        let qe = self.half_extents * 0.5;
+        let offset = Vec3::new(
+            if octant & 1 != 0 { qe.x } else { -qe.x },
+            if octant & 2 != 0 { qe.y } else { -qe.y },
+            if octant & 4 != 0 { qe.z } else { -qe.z }
+        );
+
+        Aabb { center: self.center + offset, half_extents: qe }
+    }
+}
+
+pub struct OctreeNode {
+    bounds: Aabb,
+    children: Option<Box<[OctreeNode; 8]>>,
+    entities: Vec<(Entity, Vec3)>
+} impl OctreeNode {
+    fn new (bounds: Aabb) -> Self {
+        Self { bounds, children: None, entities: Vec::new() }
+    }
+
+    fn insert (&mut self, entity: Entity, pos: Vec3, depth: u32, max_depth: u32, max_per_node: usize) {
+        if depth == max_depth || (self.children.is_none() && self.entities.len() < max_per_node) {
+            self.entities.push((entity, pos));
+            return;
+        }
+
+        if self.children.is_none() {
+            self.children = Some(Box::new(std::array::from_fn(|i| {
+                OctreeNode::new(self.bounds.child_bounds(i))
+            })));
+            let existing = std::mem::take(&mut self.entities);
+            for (e, p) in existing {
+                let octant = self.bounds.octant(p);
+                self.children.as_mut().unwrap()[octant]
+                    .insert(e, p, depth + 1, max_depth, max_per_node);
+            }
+        }
+
+        let octant = self.bounds.octant(pos);
+        self.children.as_mut().unwrap()[octant]
+            .insert(entity, pos, depth + 1, max_depth, max_per_node);
+    }
+
+    pub fn query (&self, bounds: &Aabb, out: &mut Vec<Entity>) {
+        if !self.bounds.intersects(bounds) { return; }
+        out.extend(self.entities.iter().map(|(e, _)| *e));
+        if let Some(children) = &self.children {
+            for child in children.iter() {
+                child.query(bounds, out);
+            }
+        }
+    }
+}
+
+pub struct Octree {
+    pub root: OctreeNode,
+    max_dept: u32,
+    max_per_node: usize
+} impl Octree {
+    pub fn new (bounds: Aabb, max_depth: u32, max_per_node: usize) -> Self {
+        Self { root: OctreeNode::new(bounds), max_dept: max_depth, max_per_node }
+    }
+
+    pub fn insert (&mut self, entity: Entity, pos: Vec3) {
+        self.root.insert(entity, pos, 0, self.max_dept, self.max_per_node);
+    }
+}
+
+pub struct CollisionEvent {
+    pub entity_a: Entity,
+    pub entity_b: Entity,
+    pub is_trigger: bool,
+}
+
+pub struct CollisionEvents {
+    pub events: Vec<CollisionEvent>,
 }

@@ -203,7 +203,6 @@ dependencies = [
  "js-sys",
  "ruwr_ecs",
  "ruwr_macros",
- "ruwr_math",
  "wasm-bindgen",
  "wasm-bindgen-test",
  "web-sys",
@@ -220,13 +219,6 @@ dependencies = [
  "quote",
  "ruwr_ecs",
  "syn",
-]
-
-[[package]]
-name = "ruwr_math"
-version = "0.1.0"
-dependencies = [
- "glam",
 ]
 
 [[package]]

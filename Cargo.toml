@@ -14,7 +14,6 @@ js-sys = "0.3.94"
 
 ruwr_ecs    = { path = "ecs" }
 ruwr_macros = { path = "macros" }
-ruwr_math   = { path = "math" }
 
 [dependencies.web-sys]
 version = "0.3.91"
@@ -24,6 +23,7 @@ features = [
   "HtmlCanvasElement",
   "WebGl2RenderingContext",
   "Window",
+  "Performance",
   "WebGlBuffer",
   "WebGlProgram",
   "WebGlShader",
