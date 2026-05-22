@@ -1,10 +1,13 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, hash::Hash};
 use glam::Vec3;
+use js_sys::Function;
 use ruwr_ecs::Entity;
 use web_sys::{WebGl2RenderingContext, WebGlBuffer, WebGlProgram, WebGlVertexArrayObject};
 
 const LAMBERTIAN_VERT: &str = include_str!("shaders/lambertian.vert");
 const LAMBERTIAN_FRAG: &str = include_str!("shaders/lambertian.frag");
+const DEBUG_VERT:      &str = include_str!("shaders/debug.vert");
+const DEBUG_FRAG:      &str = include_str!("shaders/debug.frag");
 
 #[derive(Debug, Clone)]
 pub struct DeltaTime (pub f32);
@@ -44,6 +47,42 @@ pub struct Viewport {
     }
 }
 
+pub struct RenderOptions {
+    pub debug: bool,
+}
+
+// =================================================================== //
+// ============================ COLLSIONS ============================ //
+// =================================================================== //
+#[derive(Debug, Clone)]
+pub struct CollisionCallbacks {
+    callbacks: HashMap<u32, Vec<Function>>
+}
+impl CollisionCallbacks {
+    pub fn new () -> Self {
+        Self { callbacks: HashMap::new() }
+    }
+
+    pub fn insert_callback (&mut self, id: u32, callback: Function) {
+        self.callbacks.entry(id).or_default().push(callback);
+    }
+
+    pub fn collect_fires (&self, events: &CollisionEvents) -> Vec<(Function, u32, bool)> {
+        let mut out = Vec::new();
+        for event in &events.events {
+            let a          = event.entity_a.id();
+            let b          = event.entity_b.id();
+            let is_trigger = event.is_trigger;
+            if let Some(cbs) = self.callbacks.get(&a) {
+                for cb in cbs { out.push((cb.clone(), b, is_trigger)); }
+            }
+            if let Some(cbs) = self.callbacks.get(&b) {
+                for cb in cbs { out.push((cb.clone(), a, is_trigger)); }
+            }
+        }
+        out
+    }
+}
 
 // =================================================================== //
 // =============================== IDs =============================== //
@@ -312,6 +351,7 @@ impl GpuShader {
 
 pub struct ShaderStore {
     lambertian_id: Option<ShaderId>,
+    pub debug_id:  Option<ShaderId>,
     shaders: HashMap<ShaderId, GpuShader>,
     next_id: u32,
 }
@@ -320,13 +360,15 @@ impl ShaderStore {
     pub fn new () -> Self {
         Self {
             lambertian_id: None,
+            debug_id: None,
             shaders: HashMap::new(),
             next_id: 0
         }
     }
 
     pub fn load_defaults (&mut self, context: &WebGl2RenderingContext) {
-        self.lambertian_id = Some(self.compile(context, LAMBERTIAN_VERT, LAMBERTIAN_FRAG).expect("Error compiling lambertian shader"))
+        self.lambertian_id = Some(self.compile(context, LAMBERTIAN_VERT, LAMBERTIAN_FRAG).expect("Error compiling lambertian shader"));
+        self.debug_id      = Some(self.compile(context, DEBUG_VERT, DEBUG_FRAG).expect("Error compiling debug shader"));
     }
 
     pub fn compile (
@@ -355,6 +397,89 @@ impl ShaderStore {
             None => None,
             Some(id) => self.shaders.get(&id)
         }
+    }
+}
+
+// =================================================================== //
+// ========================= DEBUG RESOURCES ========================= //
+// =================================================================== //
+
+const DEBUG_RING_SEGMENTS: i32 = 64;
+
+pub struct DebugResources {
+    pub sphere_vao: WebGlVertexArrayObject,
+    pub sphere_vbo: WebGlBuffer,
+    pub box_vao:    WebGlVertexArrayObject,
+    pub box_vbo:    WebGlBuffer,
+    pub shader_id:  ShaderId,
+}
+
+impl DebugResources {
+    pub fn new(ctx: &WebGl2RenderingContext, shader_id: ShaderId) -> Self {
+        // sphere: 3 great circles (XY, XZ, YZ), each with DEBUG_RING_SEGMENTS points
+        let mut sphere_verts: Vec<f32> = Vec::new();
+        for ring in 0..3_i32 {
+            for i in 0..DEBUG_RING_SEGMENTS {
+                let theta = 2.0 * std::f32::consts::PI * i as f32 / DEBUG_RING_SEGMENTS as f32;
+                let (s, c) = theta.sin_cos();
+                match ring {
+                    0 => sphere_verts.extend_from_slice(&[c, s, 0.0]),
+                    1 => sphere_verts.extend_from_slice(&[c, 0.0, s]),
+                    _ => sphere_verts.extend_from_slice(&[0.0, c, s]),
+                }
+            }
+        }
+
+        let sphere_vao = ctx.create_vertex_array().unwrap();
+        let sphere_vbo = ctx.create_buffer().unwrap();
+        ctx.bind_vertex_array(Some(&sphere_vao));
+        ctx.bind_buffer(WebGl2RenderingContext::ARRAY_BUFFER, Some(&sphere_vbo));
+        unsafe {
+            let view = js_sys::Float32Array::view(&sphere_verts);
+            ctx.buffer_data_with_array_buffer_view(WebGl2RenderingContext::ARRAY_BUFFER, &view, WebGl2RenderingContext::STATIC_DRAW);
+        }
+        ctx.vertex_attrib_pointer_with_i32(0, 3, WebGl2RenderingContext::FLOAT, false, 12, 0);
+        ctx.enable_vertex_attrib_array(0);
+        ctx.bind_vertex_array(None);
+
+        // box: 12 edges of a unit cube centred at origin, as LINES (24 verts)
+        #[rustfmt::skip]
+        let box_verts: [f32; 72] = [
+            -1.0,-1.0,-1.0,  1.0,-1.0,-1.0,   1.0,-1.0,-1.0,  1.0,-1.0, 1.0,
+             1.0,-1.0, 1.0, -1.0,-1.0, 1.0,  -1.0,-1.0, 1.0, -1.0,-1.0,-1.0,
+            -1.0, 1.0,-1.0,  1.0, 1.0,-1.0,   1.0, 1.0,-1.0,  1.0, 1.0, 1.0,
+             1.0, 1.0, 1.0, -1.0, 1.0, 1.0,  -1.0, 1.0, 1.0, -1.0, 1.0,-1.0,
+            -1.0,-1.0,-1.0, -1.0, 1.0,-1.0,   1.0,-1.0,-1.0,  1.0, 1.0,-1.0,
+             1.0,-1.0, 1.0,  1.0, 1.0, 1.0,  -1.0,-1.0, 1.0, -1.0, 1.0, 1.0,
+        ];
+
+        let box_vao = ctx.create_vertex_array().unwrap();
+        let box_vbo = ctx.create_buffer().unwrap();
+        ctx.bind_vertex_array(Some(&box_vao));
+        ctx.bind_buffer(WebGl2RenderingContext::ARRAY_BUFFER, Some(&box_vbo));
+        unsafe {
+            let view = js_sys::Float32Array::view(&box_verts);
+            ctx.buffer_data_with_array_buffer_view(WebGl2RenderingContext::ARRAY_BUFFER, &view, WebGl2RenderingContext::STATIC_DRAW);
+        }
+        ctx.vertex_attrib_pointer_with_i32(0, 3, WebGl2RenderingContext::FLOAT, false, 12, 0);
+        ctx.enable_vertex_attrib_array(0);
+        ctx.bind_vertex_array(None);
+
+        Self { sphere_vao, sphere_vbo, box_vao, box_vbo, shader_id }
+    }
+
+    pub fn draw_sphere(&self, ctx: &WebGl2RenderingContext) {
+        ctx.bind_vertex_array(Some(&self.sphere_vao));
+        for ring in 0..3 {
+            ctx.draw_arrays(WebGl2RenderingContext::LINE_LOOP, ring * DEBUG_RING_SEGMENTS, DEBUG_RING_SEGMENTS);
+        }
+        ctx.bind_vertex_array(None);
+    }
+
+    pub fn draw_box(&self, ctx: &WebGl2RenderingContext) {
+        ctx.bind_vertex_array(Some(&self.box_vao));
+        ctx.draw_arrays(WebGl2RenderingContext::LINES, 0, 24);
+        ctx.bind_vertex_array(None);
     }
 }
 

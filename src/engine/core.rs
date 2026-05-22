@@ -3,6 +3,7 @@ use std::rc::Rc;
 use std::cell::RefCell;
 
 use glam::Vec3;
+use js_sys;
 use ruwr_ecs::Entity;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
@@ -16,10 +17,11 @@ use crate::engine::components::Camera3DComponent;
 use crate::engine::components::ColliderComponent;
 use crate::engine::components::ColliderShapeComponent;
 use crate::engine::components::DirectionalLightComponent;
-use crate::engine::components::RigidbodyComponent;
 use crate::engine::components::TransformComponent;
-use crate::engine::objects::SceneObject;
+use crate::engine::objects::{CollisionResult, SceneObject};
 use crate::engine::resources::AmbientLight;
+use crate::engine::resources::RenderOptions;
+use crate::engine::resources::CollisionCallbacks;
 use crate::engine::resources::CollisionEvents;
 use crate::engine::resources::MaterialStore;
 use crate::engine::resources::MeshStore;
@@ -71,9 +73,12 @@ impl Engine {
         context.enable(WebGl2RenderingContext::DEPTH_TEST);
 
         let mut world = World::new();
+        // REGISTER RESOURCES
         world.insert_resource(Viewport::new(canvas.width(), canvas.height()));
         world.insert_resource(MeshStore::new());
         world.insert_resource(MaterialStore::new());
+        world.insert_resource(CollisionCallbacks::new());
+        world.insert_resource(RenderOptions { debug: false });
 
         let mut shaders = ShaderStore::new();
         shaders.load_defaults(&context);
@@ -121,10 +126,31 @@ impl Engine {
         };
         self.last_timestamp = timestamp;
 
-        let mut world = self.world.borrow_mut();
-        world.insert_resource(DeltaTime(dt));
-        if self.playing { self.sim_scheduler.run(&mut world); }
-        self.render_scheduler.run(&mut world);
+        let fire_list: Vec<(js_sys::Function, u32, bool)> = {
+            let mut world = self.world.borrow_mut();
+            world.insert_resource(DeltaTime(dt));
+            if self.playing { self.sim_scheduler.run(&mut world); }
+            self.render_scheduler.run(&mut world);
+
+            if self.playing {
+                match (world.get_resource::<CollisionEvents>(), world.get_resource::<CollisionCallbacks>()) {
+                    (Some(events), Some(callbacks)) => callbacks.collect_fires(events),
+                    _ => vec![],
+                }
+            } else { vec![] }
+        };
+
+        for (cb, other_id, is_trigger) in fire_list {
+            let result = CollisionResult::new(
+                Rc::clone(&self.world),
+                self.context.clone(),
+                Entity::from_id(other_id),
+                is_trigger,
+            );
+            if let Err(e) = cb.call1(&JsValue::UNDEFINED, &result.into()) {
+                crate::console_warn!("onCollision callback threw: {:?}", e);
+            }
+        }
     }
 
     #[wasm_bindgen(js_name = "isPlaying")]
@@ -158,6 +184,13 @@ impl Engine {
         self.world.borrow().get_resource::<DeltaTime>().map(|d| d.0).unwrap_or(0.0)
     }
 
+    #[wasm_bindgen(js_name = "setDebug")]
+    pub fn set_debug(&mut self, enabled: bool) {
+        if let Some(opts) = self.world.borrow_mut().get_resource_mut::<RenderOptions>() {
+            opts.debug = enabled;
+        }
+    }
+
     #[wasm_bindgen(js_name = "compileShader")]
     pub fn compile_shader (&mut self, vert_src: &str, frag_src: &str) -> u32 {
         self.world.as_ref().borrow_mut().get_resource_mut::<ShaderStore>().unwrap()
@@ -168,7 +201,6 @@ impl Engine {
 // ================================================================== //
 // ============================== SCENE ============================= //
 // ================================================================== //
-
 #[wasm_bindgen]
 pub struct Scene {
     pub(crate) world: Rc<RefCell<World>>,
@@ -177,7 +209,6 @@ pub struct Scene {
 
 #[wasm_bindgen]
 impl Scene {
-
     // Lighting
     #[wasm_bindgen(js_name = "setAmbientLight")]
     pub fn set_ambient_light(&self, color: ColorRGB) {
@@ -185,15 +216,11 @@ impl Scene {
     }
 
     #[wasm_bindgen(js_name = "addDirectionalLight")]
-    pub fn add_directional_light(&self, direction: Vector3, color: ColorRGB) -> u32 {
-        let mut world = self.world.borrow_mut();
-        let light = world.spawn();
-        let direction: Vec3 = direction.into();
-        world.add_component(light, DirectionalLightComponent {
-            direction: direction.normalize(),
-            color: color.into(),
-        });
-        light.id()
+    pub fn add_directional_light(&self, position: Vector3, direction: Vector3, color: ColorRGB) -> SceneObject {
+        let light_obj = SceneObject::new(&self, false);
+        light_obj.attach::<DirectionalLightComponent>(DirectionalLightComponent { direction: direction.into(), color: color.into() });
+        light_obj.attach::<TransformComponent>(TransformComponent::new(position.into()));
+        light_obj
     }
 
     // Cameras
@@ -245,14 +272,6 @@ impl Scene {
     }
 
     // Entities
-    #[wasm_bindgen(js_name = "addRigidbody")]
-    pub fn add_rigidbody(&self, entity_id: u32, mass: f32, gravity_enabled: bool) {
-        self.world.borrow_mut().add_component(
-            Entity::from_id(entity_id),
-            RigidbodyComponent { mass, velocity: Vec3::ZERO, gravity_enabled },
-        );
-    }
-
     #[wasm_bindgen(js_name = "addSphereCollider")]
     pub fn add_sphere_collider(&self, entity_id: u32, radius: f32, is_trigger: bool) {
         self.world.borrow_mut().add_component(

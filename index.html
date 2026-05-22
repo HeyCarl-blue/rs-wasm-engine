@@ -17,7 +17,19 @@
     
     <canvas id="canvas"></canvas>
     <script type="module">
-        import init, { Engine, SphereMesh, SceneObject, Transform, LambertianMaterial, ColorRGB, ColorRGBA, Vector3, Quaternion, Rigidbody } from './pkg/ruwr.js';
+        import init, {
+            Engine,
+            SphereMesh,
+            SceneObject,
+            Transform,
+            LambertianMaterial,
+            ColorRGB,
+            ColorRGBA,
+            Vector3,
+            Quaternion,
+            Rigidbody,
+            SphereCollider,
+        } from './pkg/ruwr.js';
 
         await init();
 
@@ -79,6 +91,7 @@
 
         const engine = new Engine('canvas');
         const scene  = engine.scene();
+        engine.setDebug(true);
 
         new ResizeObserver(entries => {
             const { width, height } = entries[0].contentRect;
@@ -113,18 +126,20 @@
         blue.attachTo(b);
 
         new Rigidbody(1.0, false).attachTo(a);
-        new Rigidbody(1.0, true).attachTo(b);
+        new Rigidbody(1.0, false).attachTo(b);
 
-        // a.addSphereCollider(false);
-        // b.addSphereCollider(false);
+        const collA = new SphereCollider(true, 1.0);
+        collA.attachTo(a);
+        collA.onCollision(result => {
+            console.log(`${a.id()} collided with entity ${result.getOtherId()}, trigger: ${result.isTrigger()}`);
+        })
+        const collB = new SphereCollider(true, 1.0);
+        collB.attachTo(b);
 
-        function pollEvents (engine, dt) {
-            // console.log(keysDown);
-            // console.log(mouseDown);
-
-            if (mouseDown.has(0)) {
+        function handleInput (engine, dt) {
+            // if (mouseDown.has(0)) {
                 
-            }
+            // }
 
             if (document.pointerLockElement === canvas) {
                 yaw   -= mouse.dx * LOOK_SENSITIVITY;
@@ -157,19 +172,21 @@
         }
 
         function loop() {
-            // engine.clear(ColorRGBA.fromHex('222222'));
             engine.nextFrame();
             const dt = engine.deltaTime();
-
-            // if (engine.isPlaying()) {
-            //     ta.translate(new Vector3(0.0, -0.981 * dt, 0.0));
-            // }
 
             fpsLabel.textContent = `${(1.0 / dt).toFixed(2)} fps`;
             playingLabel.textContent = `${engine.isPlaying() ? 'playing' : 'paused'}`;
             positionLabel.textContent = `camera pos: ${cameraTransform.getPosition()}`;
 
-            pollEvents(engine, dt);
+            if (engine.isPlaying()) {
+                // console.log(`${ta.getPosition().sub(tb.getPosition())}`);
+                let posDiff = ta.getPosition().sub(tb.getPosition());
+                ta.translate(posDiff.mul(-dt));
+                tb.translate(posDiff.mul(dt));
+            }
+
+            handleInput(engine, dt);
 
             mouse.dx = 0;
             mouse.dy = 0;

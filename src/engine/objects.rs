@@ -6,12 +6,7 @@ use ruwr_ecs::{Component, Entity, World};
 use wasm_bindgen::prelude::wasm_bindgen;
 use web_sys::WebGl2RenderingContext;
 
-use crate::engine::{components::{Camera2DComponent, Camera3DComponent, MaterialComponent, MeshComponent, RigidbodyComponent, TransformComponent, VisibleTag}, core::Scene, resources::{MaterialData, MaterialStore, MeshStore, ShaderStore}, types::{ColorRGB, Matrix4, Quaternion, Vector3}};
-
-#[wasm_bindgen]
-pub enum MaterialType {
-    LAMBERTIAN
-}
+use crate::{console_warn, engine::{components::{Camera2DComponent, Camera3DComponent, ColliderComponent, ColliderShapeComponent, DirectionalLightComponent, MaterialComponent, MeshComponent, RigidbodyComponent, SphereParamsComponent, TransformComponent, VisibleTag}, core::Scene, resources::{CollisionCallbacks, MaterialData, MaterialStore, MeshStore, ShaderStore}, types::{ColorRGB, Matrix4, Quaternion, Vector3}}};
 
 #[wasm_bindgen]
 pub struct SceneObject {
@@ -37,14 +32,7 @@ impl SceneObject {
         obj
     }
 
-    #[wasm_bindgen(js_name = "getTransform")]
-    pub fn get_transform (&self) -> Option<Transform> {
-        if let Some(transform) = self.world.borrow().get_component::<TransformComponent>(self.entity) {
-            Some(Transform { world: Some(Rc::clone(&self.world)), entity: Some(self.entity), position: transform.position, rotation: transform.rotation, scale: transform.scale })
-        } else {
-            None
-        }
-    }
+    pub fn id (&self) -> u32 { self.entity.id() }
 
     #[wasm_bindgen(js_name = "makeVisible")]
     pub fn make_visible (&self) {
@@ -60,8 +48,118 @@ impl SceneObject {
     pub fn is_visible (&self) -> bool {
         self.world.borrow().has_component::<VisibleTag>(self.entity)
     }
+
+    #[wasm_bindgen(js_name = "onCollision")]
+    pub fn on_collision(&self, cb: js_sys::Function) {
+        self.world.borrow_mut()
+            .get_resource_mut::<CollisionCallbacks>()
+            .expect("CollisionCallbacks resource missing")
+            .insert_callback(self.entity.id(), cb);
+    }
+
+    #[wasm_bindgen(js_name = "getTransform")]
+    pub fn get_transform (&self) -> Option<Transform> {
+        if let Some(transform) = self.world.borrow().get_component::<TransformComponent>(self.entity) {
+            Some(Transform { world: Some(Rc::clone(&self.world)), entity: Some(self.entity), position: transform.position, rotation: transform.rotation, scale: transform.scale })
+        } else {
+            console_warn!("tried to get Transform from an object that has no Transform attached");
+            None
+        }
+    }
+
+    #[wasm_bindgen(js_name = "getDirectionalLight")]
+    pub fn get_directional_light(&self) -> Option<DirectionalLight> {
+        let world = self.world.borrow();
+        if let Some(c) = world.get_component::<DirectionalLightComponent>(self.entity) {
+            Some(DirectionalLight { world: Some(Rc::clone(&self.world)), entity: Some(self.entity), direction: c.direction.into(), color: c.color.into() })
+        } else {
+            console_warn!("tried to get DirectionalLight from an object that has no DirectionalLight attached");
+            None
+        }
+    }
+
+    #[wasm_bindgen(js_name = "getCamera2D")]
+    pub fn get_camera_2d(&self) -> Option<Camera2D> {
+        let world = self.world.borrow();
+        if let Some(c) = world.get_component::<Camera2DComponent>(self.entity) {
+            Some(Camera2D { world: Some(Rc::clone(&self.world)), entity: Some(self.entity), zoom: c.zoom, near: c.near, far: c.far })
+        } else {
+            console_warn!("tried to get Camera2D from an object that has no Camera2D attached");
+            None
+        }
+    }
+
+    #[wasm_bindgen(js_name = "getCamera3D")]
+    pub fn get_camera_3d(&self) -> Option<Camera3D> {
+        let world = self.world.borrow();
+        if let Some(c) = world.get_component::<Camera3DComponent>(self.entity) {
+            Some(Camera3D { world: Some(Rc::clone(&self.world)), entity: Some(self.entity), fov_degrees: c.fov_degrees, near: c.near, far: c.far })
+        } else {
+            console_warn!("tried to get Camera3D from an object that has no Camera3D attached");
+            None
+        }
+    }
+
+    #[wasm_bindgen(js_name = "getRigidbody")]
+    pub fn get_rigidbody(&self) -> Option<Rigidbody> {
+        let world = self.world.borrow();
+        if let Some(c) = world.get_component::<RigidbodyComponent>(self.entity) {
+            Some(Rigidbody { world: Some(Rc::clone(&self.world)), entity: Some(self.entity), mass: c.mass, gravity_enabled: c.gravity_enabled })
+        } else {
+            console_warn!("tried to get Rigidbody from an object that has no Rigidbody attached");
+            None
+        }
+    }
+
+    #[wasm_bindgen(js_name = "getLambertianMaterial")]
+    pub fn get_lambertian_material(&self) -> Option<LambertianMaterial> {
+        let world = self.world.borrow();
+        let mat_id = world.get_component::<MaterialComponent>(self.entity).map(|c| c.material_id);
+        if let Some(mat_id) = mat_id {
+            let albedo = world.get_resource::<MaterialStore>().and_then(|s| s.get(mat_id)).map(|d| d.albedo.into());
+            if let Some(albedo) = albedo {
+                return Some(LambertianMaterial { world: Some(Rc::clone(&self.world)), entity: Some(self.entity), albedo });
+            }
+        }
+        console_warn!("tried to get LambertianMaterial from an object that has no LambertianMaterial attached");
+        None
+    }
+
+    #[wasm_bindgen(js_name = "getSphereMesh")]
+    pub fn get_sphere_mesh(&self) -> Option<SphereMesh> {
+        let world = self.world.borrow();
+        if let Some(p) = world.get_component::<SphereParamsComponent>(self.entity) {
+            Some(SphereMesh { world: Some(Rc::clone(&self.world)), entity: Some(self.entity), context: Some(self.context.clone()), stacks: p.stacks, slices: p.slices })
+        } else {
+            console_warn!("tried to get SphereMesh from an object that has no SphereMesh attached");
+            None
+        }
+    }
+
+    #[wasm_bindgen(js_name = "getSphereCollider")]
+    pub fn get_sphere_collider(&self) -> Option<SphereCollider> {
+        let world = self.world.borrow();
+        if let Some(c) = world.get_component::<ColliderComponent>(self.entity) {
+            match c.shape {
+                ColliderShapeComponent::Sphere { radius } => Some(SphereCollider {
+                    world: Some(Rc::clone(&self.world)), entity: Some(self.entity), is_trigger: c.is_trigger, radius,
+                }),
+                _ => {
+                    console_warn!("tried to get SphereCollider but the attached collider is not a sphere");
+                    None
+                }
+            }
+        } else {
+            console_warn!("tried to get SphereCollider from an object that has no collider attached");
+            None
+        }
+    }
 }
 impl SceneObject {
+    pub(crate) fn from_parts(world: Rc<RefCell<World>>, context: WebGl2RenderingContext, entity: Entity) -> Self {
+        Self { world, context, entity }
+    }
+
     pub(crate) fn attach<T: Component>(&self, component: T) {
         self.world.borrow_mut().add_component::<T>(self.entity, component);
     }
@@ -175,6 +273,28 @@ impl Transform {
     pub fn left(&self) -> Option<Vector3> {
         let (w, e) = (self.world.as_ref()?, self.entity?);
         w.borrow().get_component::<TransformComponent>(e).map(|t| t.left().into())
+    }
+}
+
+#[wasm_bindgen]
+pub struct DirectionalLight {
+    world: Option<Rc<RefCell<World>>>,
+    entity: Option<Entity>,
+    direction: Vector3,
+    color:     ColorRGB
+}
+#[wasm_bindgen]
+impl DirectionalLight {
+    #[wasm_bindgen(constructor)]
+    pub fn new (direction: Vector3, color: ColorRGB) -> Self {
+        Self { world: None, entity: None, direction, color }
+    }
+
+    #[wasm_bindgen(js_name = "attachTo")]
+    pub fn attach_to(&mut self, obj: &SceneObject) {
+        obj.attach::<DirectionalLightComponent>(DirectionalLightComponent { direction: self.direction.into(), color: self.color.into() });
+        self.world = Some(Rc::clone(&obj.world));
+        self.entity = Some(obj.entity);
     }
 }
 
@@ -393,6 +513,7 @@ impl SphereMesh {
         let mesh_id = obj.world.borrow_mut().get_resource_mut::<MeshStore>()
             .unwrap().get_or_create_sphere(&obj.context, self.stacks, self.slices);
         obj.attach::<MeshComponent>(MeshComponent { mesh_id });
+        obj.attach::<SphereParamsComponent>(SphereParamsComponent { stacks: self.stacks, slices: self.slices });
         self.world   = Some(Rc::clone(&obj.world));
         self.entity  = Some(obj.entity);
         self.context = Some(obj.context.clone());
@@ -423,5 +544,65 @@ impl Mesh for SphereMesh {
                 .unwrap().get_or_create_sphere(ctx, self.stacks, self.slices);
             w.borrow_mut().get_component_mut::<MeshComponent>(e).map(|m| m.mesh_id = mesh_id);
         }
+    }
+}
+
+// ===========================================================================================
+//====================================== COLLISIONS ==========================================
+// ===========================================================================================
+#[wasm_bindgen]
+pub struct SphereCollider {
+    world:   Option<Rc<RefCell<World>>>,
+    entity:  Option<Entity>,
+    is_trigger: bool,
+    radius: f32,
+}
+#[wasm_bindgen]
+impl SphereCollider {
+    #[wasm_bindgen(constructor)]
+    pub fn new (#[wasm_bindgen(js_name = "isTrigger")]is_trigger: bool, radius: f32) -> Self {
+        Self { world: None, entity: None, is_trigger, radius }
+    }
+
+    #[wasm_bindgen(js_name = "attachTo")]
+    pub fn attach_to (&mut self, obj: &SceneObject) {
+        obj.attach::<ColliderComponent>(ColliderComponent { shape: ColliderShapeComponent::Sphere { radius: self.radius }, is_trigger: self.is_trigger });
+        self.world  = Some(Rc::clone(&obj.world));
+        self.entity = Some(obj.entity);
+    }
+
+    #[wasm_bindgen(js_name = "onCollision")]
+    pub fn on_collision (&mut self, function: js_sys::Function) {
+        if let Some(world) = &self.world {
+            world.borrow_mut().get_resource_mut::<CollisionCallbacks>().unwrap().insert_callback(self.entity.unwrap().id(), function);
+        } else {
+            crate::console_warn!("onCollision called before being attached to a SceneObject - callback ignored");
+        }
+    }
+}
+
+#[wasm_bindgen]
+pub struct CollisionResult {
+    world:        Rc<RefCell<World>>,
+    context:      WebGl2RenderingContext,
+    other_entity: Entity,
+    is_trigger:   bool,
+}
+#[wasm_bindgen]
+impl CollisionResult {
+    #[wasm_bindgen(js_name = "getOther")]
+    pub fn get_other(&self) -> SceneObject {
+        SceneObject::from_parts(Rc::clone(&self.world), self.context.clone(), self.other_entity)
+    }
+
+    #[wasm_bindgen(js_name = "isTrigger")]
+    pub fn is_trigger(&self) -> bool { self.is_trigger }
+
+    #[wasm_bindgen(js_name = "getOtherId")]
+    pub fn get_other_id(&self) -> u32 { self.other_entity.id() }
+}
+impl CollisionResult {
+    pub(crate) fn new(world: Rc<RefCell<World>>, context: WebGl2RenderingContext, other_entity: Entity, is_trigger: bool) -> Self {
+        Self { world, context, other_entity, is_trigger }
     }
 }

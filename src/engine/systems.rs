@@ -4,7 +4,7 @@ use web_sys::{WebGl2RenderingContext, WebGlProgram};
 
 use crate::engine::{components::{ActiveCameraTag, Camera2DComponent, Camera3DComponent, ColliderComponent, ColliderShapeComponent, DirectionalLightComponent, MaterialComponent, MeshComponent, RigidbodyComponent, TransformComponent, VisibleTag}, resources::{Aabb, CollisionEvent, CollisionEvents, Octree, Viewport}};
 use ruwr_ecs::Entity;
-use crate::engine::resources::{AmbientLight, DeltaTime, MaterialStore, MeshStore, ShaderStore};
+use crate::engine::resources::{AmbientLight, DebugResources, DeltaTime, MaterialStore, MeshStore, RenderOptions, ShaderStore};
 
 use ruwr_ecs::World;
 
@@ -116,6 +116,40 @@ pub struct RenderSystem {
                 0
             );
             ctx.bind_vertex_array(None);
+        }
+
+        // --- debug pass ---
+        let debug = world.get_resource::<RenderOptions>().map(|o| o.debug).unwrap_or(false);
+        if debug {
+            if world.get_resource::<DebugResources>().is_none() {
+                let shader_id = world.get_resource::<ShaderStore>().unwrap().debug_id.unwrap();
+                world.insert_resource(DebugResources::new(ctx, shader_id));
+            }
+
+            let colliders: Vec<(TransformComponent, ColliderShapeComponent)> =
+                world.query2::<ColliderComponent, TransformComponent>()
+                    .map(|(_, c, t)| (t.clone(), c.shape.clone()))
+                    .collect();
+
+            let shader_id = world.get_resource::<DebugResources>().unwrap().shader_id;
+            let prog = world.get_resource::<ShaderStore>().unwrap()
+                .get(shader_id).unwrap().program.clone();
+            ctx.use_program(Some(&prog));
+            set_uniform_vec3(ctx, &prog, "u_color", Vec3::new(0.0, 1.0, 0.0));
+
+            for (transform, shape) in &colliders {
+                let scale = match shape {
+                    ColliderShapeComponent::Sphere { radius } => Vec3::splat(*radius),
+                    ColliderShapeComponent::Aabb { half_extents } => *half_extents,
+                };
+                let mvp = view_proj * Mat4::from_scale_rotation_translation(scale, transform.rotation, transform.position);
+                set_uniform_mat4(ctx, &prog, "u_mvp", &mvp);
+                let debug_res = world.get_resource::<DebugResources>().unwrap();
+                match shape {
+                    ColliderShapeComponent::Sphere { .. } => debug_res.draw_sphere(ctx),
+                    ColliderShapeComponent::Aabb   { .. } => debug_res.draw_box(ctx),
+                }
+            }
         }
     }
 }

@@ -18,6 +18,7 @@ ruwr_macros = { path = "macros" }
 [dependencies.web-sys]
 version = "0.3.91"
 features = [
+  "console",
   "Document",
   "Element",
   "HtmlCanvasElement",

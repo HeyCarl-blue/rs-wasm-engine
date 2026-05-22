@@ -100,6 +100,13 @@ pub struct MeshComponent {
     }
 }
 
+#[component]
+#[derive(Debug, Clone)]
+pub struct SphereParamsComponent {
+    pub stacks: u32,
+    pub slices: u32,
+}
+
 // MATERIALS
 #[component]
 #[derive(Debug, Clone)]
